@@ -127,9 +127,7 @@ class FirestoreEmulator:
         self._process = self._launch(self._host, port, self._project)
         self._is_owner = True
         _wait_for_port(self._host, port, self._timeout)
-        self._info = EmulatorInfo(
-            host=self._host, port=port, project=self._project
-        )
+        self._info = EmulatorInfo(host=self._host, port=port, project=self._project)
         return self._info
 
     def _stop_standalone(self) -> None:
@@ -163,9 +161,7 @@ class FirestoreEmulator:
             self._process = self._launch(self._host, port, self._project)
             self._is_owner = True
             _wait_for_port(self._host, port, self._timeout)
-            self._info = EmulatorInfo(
-                host=self._host, port=port, project=self._project
-            )
+            self._info = EmulatorInfo(host=self._host, port=port, project=self._project)
             self._write_state(
                 state_path,
                 {
@@ -197,9 +193,7 @@ class FirestoreEmulator:
                 self._write_state(state_path, state)
 
     @staticmethod
-    def _launch(
-        host: str, port: int, project: str
-    ) -> subprocess.Popen[bytes]:
+    def _launch(host: str, port: int, project: str) -> subprocess.Popen[bytes]:
         """Launch the gcloud Firestore emulator subprocess."""
         cmd = [
             "gcloud",

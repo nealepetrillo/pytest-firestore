@@ -78,16 +78,10 @@ def firestore_emulator(
     config = request.config
 
     host = _get_option(config, "firestore_host", "firestore_emulator_host")
-    port = int(
-        _get_option(config, "firestore_port", "firestore_emulator_port")
-    )
-    project = _get_option(
-        config, "firestore_project", "firestore_project_id"
-    )
+    port = int(_get_option(config, "firestore_port", "firestore_emulator_port"))
+    project = _get_option(config, "firestore_project", "firestore_project_id")
     timeout = float(
-        _get_option(
-            config, "firestore_timeout", "firestore_emulator_timeout"
-        )
+        _get_option(config, "firestore_timeout", "firestore_emulator_timeout")
     )
 
     # Detect xdist worker — use the shared tmp dir above all workers' bases

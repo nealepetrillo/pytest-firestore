@@ -3,38 +3,38 @@
 from __future__ import annotations
 
 import os
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
 
+# Access the raw generator function, bypassing the pytest fixture decorator.
+import pytest_firestore.plugin as _plugin_mod
 from pytest_firestore._emulator import EmulatorInfo
 from pytest_firestore.plugin import _get_option, pytest_addoption
 
-# Access the raw generator function, bypassing the pytest fixture decorator.
-import pytest_firestore.plugin as _plugin_mod
-
-_firestore_emulator_fn = _plugin_mod.firestore_emulator.__wrapped__
+_firestore_emulator_fn = _plugin_mod.firestore_emulator.__wrapped__  # type: ignore[attr-defined]
 
 
 # ── _get_option ──────────────────────────────────────────────────────────
 
 
 class TestGetOption:
-    def _make_config(self, cli_val, ini_val):
+    def _make_config(self, cli_val: Any, ini_val: Any) -> MagicMock:
         config = MagicMock()
         config.getoption.return_value = cli_val
         config.getini.return_value = ini_val
         return config
 
-    def test_cli_precedence(self):
+    def test_cli_precedence(self) -> None:
         config = self._make_config("from-cli", "from-ini")
         assert _get_option(config, "some_cli", "some_ini") == "from-cli"
 
-    def test_fallback_to_ini(self):
+    def test_fallback_to_ini(self) -> None:
         config = self._make_config(None, "from-ini")
         assert _get_option(config, "some_cli", "some_ini") == "from-ini"
 
-    def test_numeric_to_str(self):
+    def test_numeric_to_str(self) -> None:
         config = self._make_config(8080, "default")
         assert _get_option(config, "some_cli", "some_ini") == "8080"
 
@@ -43,7 +43,7 @@ class TestGetOption:
 
 
 class TestPytestAddoption:
-    def test_registers_options(self):
+    def test_registers_options(self) -> None:
         parser = MagicMock()
         group = MagicMock()
         parser.getgroup.return_value = group
@@ -58,7 +58,7 @@ class TestPytestAddoption:
 
 
 class TestFirestoreEmulatorFixture:
-    def _make_request(self, *, has_workerinput=False):
+    def _make_request(self, *, has_workerinput: bool = False) -> MagicMock:
         config = MagicMock()
         config.getoption.return_value = None
         config.getini.side_effect = lambda key: {
@@ -75,7 +75,7 @@ class TestFirestoreEmulatorFixture:
         request.config = config
         return request
 
-    def test_sets_and_restores_env(self):
+    def test_sets_and_restores_env(self) -> None:
         request = self._make_request()
         tmp_path_factory = MagicMock()
         info = EmulatorInfo(host="localhost", port=8080, project="test-project")
@@ -98,7 +98,7 @@ class TestFirestoreEmulatorFixture:
             assert "FIRESTORE_EMULATOR_HOST" not in os.environ
             instance.stop.assert_called_once()
 
-    def test_restores_previous_env(self):
+    def test_restores_previous_env(self) -> None:
         request = self._make_request()
         tmp_path_factory = MagicMock()
         info = EmulatorInfo(host="localhost", port=8080, project="test-project")
@@ -120,7 +120,7 @@ class TestFirestoreEmulatorFixture:
         finally:
             os.environ.pop("FIRESTORE_EMULATOR_HOST", None)
 
-    def test_xdist_uses_shared_dir(self):
+    def test_xdist_uses_shared_dir(self) -> None:
         request = self._make_request(has_workerinput=True)
         tmp_path_factory = MagicMock()
         base = MagicMock()
@@ -141,7 +141,7 @@ class TestFirestoreEmulatorFixture:
             with pytest.raises(StopIteration):
                 next(gen)
 
-    def test_no_xdist_no_shared_dir(self):
+    def test_no_xdist_no_shared_dir(self) -> None:
         request = self._make_request(has_workerinput=False)
         tmp_path_factory = MagicMock()
 

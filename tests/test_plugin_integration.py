@@ -16,16 +16,15 @@ class TestEmulatorLifecycle:
     """Test that the emulator starts, sets env vars, and port is reachable."""
 
     @skip_no_gcloud
-    def test_emulator_starts_and_sets_env(
-        self, pytester: pytest.Pytester
-    ) -> None:
+    def test_emulator_starts_and_sets_env(self, pytester: pytest.Pytester) -> None:
         pytester.makepyfile(
             """
             import os
             import socket
 
             def test_env_var_set(firestore_emulator):
-                assert os.environ["FIRESTORE_EMULATOR_HOST"] == firestore_emulator.host_port
+                host_port = firestore_emulator.host_port
+                assert os.environ["FIRESTORE_EMULATOR_HOST"] == host_port
 
             def test_port_reachable(firestore_emulator):
                 sock = socket.create_connection(
@@ -49,9 +48,7 @@ class TestConfiguration:
     """Test configuration via ini and CLI."""
 
     @skip_no_gcloud
-    def test_custom_project_via_ini(
-        self, pytester: pytest.Pytester
-    ) -> None:
+    def test_custom_project_via_ini(self, pytester: pytest.Pytester) -> None:
         pytester.makeini(
             """
             [pytest]
@@ -93,9 +90,7 @@ class TestAutoPort:
     """Test automatic port assignment."""
 
     @skip_no_gcloud
-    def test_port_zero_assigns_free_port(
-        self, pytester: pytest.Pytester
-    ) -> None:
+    def test_port_zero_assigns_free_port(self, pytester: pytest.Pytester) -> None:
         pytester.makepyfile(
             """
             def test_auto_port(firestore_emulator):
