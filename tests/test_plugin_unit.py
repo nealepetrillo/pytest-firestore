@@ -11,7 +11,7 @@ import pytest
 # Access the raw generator function, bypassing the pytest fixture decorator.
 import pytest_firestore.plugin as _plugin_mod
 from pytest_firestore._emulator import EmulatorInfo
-from pytest_firestore.plugin import _get_option, pytest_addoption
+from pytest_firestore.plugin import _get_option, _parse_host_port, pytest_addoption
 
 _firestore_emulator_fn = _plugin_mod.firestore_emulator.__wrapped__  # type: ignore[attr-defined]
 
@@ -37,6 +37,21 @@ class TestGetOption:
     def test_numeric_to_str(self) -> None:
         config = self._make_config(8080, "default")
         assert _get_option(config, "some_cli", "some_ini") == "8080"
+
+
+# ── _parse_host_port ────────────────────────────────────────────────────
+
+
+class TestParseHostPort:
+    def test_localhost(self) -> None:
+        assert _parse_host_port("localhost:8080") == ("localhost", 8080)
+
+    def test_ip_address(self) -> None:
+        assert _parse_host_port("127.0.0.1:9090") == ("127.0.0.1", 9090)
+
+    def test_invalid_format(self) -> None:
+        with pytest.raises(ValueError, match="Invalid host:port"):
+            _parse_host_port("no-port-here")
 
 
 # ── pytest_addoption ─────────────────────────────────────────────────────
@@ -98,25 +113,51 @@ class TestFirestoreEmulatorFixture:
             assert "FIRESTORE_EMULATOR_HOST" not in os.environ
             instance.stop.assert_called_once()
 
-    def test_restores_previous_env(self) -> None:
+    def test_external_emulator_skips_spawn(self) -> None:
+        """When FIRESTORE_EMULATOR_HOST is set, use it without spawning."""
         request = self._make_request()
         tmp_path_factory = MagicMock()
-        info = EmulatorInfo(host="localhost", port=8080, project="test-project")
 
-        os.environ["FIRESTORE_EMULATOR_HOST"] = "old-value"
+        os.environ["FIRESTORE_EMULATOR_HOST"] = "external-host:9999"
 
         try:
-            with patch("pytest_firestore.plugin.FirestoreEmulator") as MockEm:
-                instance = MockEm.return_value
-                instance.start.return_value = info
-
+            with (
+                patch("pytest_firestore.plugin.FirestoreEmulator") as MockEm,
+                patch("pytest_firestore.plugin._wait_for_port"),
+            ):
                 gen = _firestore_emulator_fn(request, tmp_path_factory)
-                next(gen)
+                result = next(gen)
+
+                # Should not have spawned an emulator
+                MockEm.assert_not_called()
+
+                assert result.host == "external-host"
+                assert result.port == 9999
+                assert result.project == "test-project"
 
                 with pytest.raises(StopIteration):
                     next(gen)
+        finally:
+            os.environ.pop("FIRESTORE_EMULATOR_HOST", None)
 
-                assert os.environ["FIRESTORE_EMULATOR_HOST"] == "old-value"
+    def test_external_emulator_waits_for_port(self) -> None:
+        """External emulator path verifies the port is reachable."""
+        request = self._make_request()
+        tmp_path_factory = MagicMock()
+
+        os.environ["FIRESTORE_EMULATOR_HOST"] = "myhost:1234"
+
+        try:
+            with (
+                patch("pytest_firestore.plugin.FirestoreEmulator"),
+                patch("pytest_firestore.plugin._wait_for_port") as mock_wait,
+            ):
+                gen = _firestore_emulator_fn(request, tmp_path_factory)
+                next(gen)
+                mock_wait.assert_called_once_with("myhost", 1234, 15.0)
+
+                with pytest.raises(StopIteration):
+                    next(gen)
         finally:
             os.environ.pop("FIRESTORE_EMULATOR_HOST", None)
 

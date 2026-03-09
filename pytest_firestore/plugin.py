@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from pytest_firestore._emulator import EmulatorInfo, FirestoreEmulator
+from pytest_firestore._emulator import EmulatorInfo, FirestoreEmulator, _wait_for_port
 
 
 def pytest_addoption(parser: pytest.Parser) -> None:
@@ -69,20 +69,42 @@ def _get_option(config: pytest.Config, cli: str, ini: str) -> str:
     return str(config.getini(ini))
 
 
+def _parse_host_port(host_port: str) -> tuple[str, int]:
+    """Parse a 'host:port' string into (host, port)."""
+    parts = host_port.rsplit(":", 1)
+    if len(parts) != 2:
+        msg = f"Invalid host:port format: {host_port!r}"
+        raise ValueError(msg)
+    return parts[0], int(parts[1])
+
+
 @pytest.fixture(scope="session")
 def firestore_emulator(
     request: pytest.FixtureRequest,
     tmp_path_factory: pytest.TempPathFactory,
 ) -> Generator[EmulatorInfo]:
-    """Start and manage a GCP Firestore emulator for the test session."""
-    config = request.config
+    """Start and manage a GCP Firestore emulator for the test session.
 
-    host = _get_option(config, "firestore_host", "firestore_emulator_host")
-    port = int(_get_option(config, "firestore_port", "firestore_emulator_port"))
+    If ``FIRESTORE_EMULATOR_HOST`` is already set in the environment (e.g. by
+    a Docker service container in CI), the fixture connects to that external
+    emulator instead of spawning a new process.
+    """
+    config = request.config
     project = _get_option(config, "firestore_project", "firestore_project_id")
     timeout = float(
         _get_option(config, "firestore_timeout", "firestore_emulator_timeout")
     )
+
+    # If an external emulator is already running, use it directly.
+    external_host = os.environ.get("FIRESTORE_EMULATOR_HOST")
+    if external_host:
+        host, port = _parse_host_port(external_host)
+        _wait_for_port(host, port, timeout)
+        yield EmulatorInfo(host=host, port=port, project=project)
+        return
+
+    host = _get_option(config, "firestore_host", "firestore_emulator_host")
+    port = int(_get_option(config, "firestore_port", "firestore_emulator_port"))
 
     # Detect xdist worker — use the shared tmp dir above all workers' bases
     shared_dir: Path | None = None
@@ -102,16 +124,15 @@ def firestore_emulator(
     info = emulator.start()
 
     # Set env var so google-cloud-firestore clients auto-connect
-    old_host = os.environ.get("FIRESTORE_EMULATOR_HOST")
     os.environ["FIRESTORE_EMULATOR_HOST"] = info.host_port
 
     yield info
 
     # Restore env var
-    if old_host is None:
+    if external_host is None:
         os.environ.pop("FIRESTORE_EMULATOR_HOST", None)
     else:
-        os.environ["FIRESTORE_EMULATOR_HOST"] = old_host
+        os.environ["FIRESTORE_EMULATOR_HOST"] = external_host
 
     emulator.stop()
 
