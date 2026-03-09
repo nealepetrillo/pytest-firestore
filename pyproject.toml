@@ -1,6 +1,6 @@
 [project]
 name = "pytest-firestore"
-version = "1.0.0"
+version = "1.0.1"
 description = "A Pytest fixture for managing Google Cloud Firestore emulator"
 authors = [
     {name = "Neale Petrillo", email = "neale.a.petrillo@gmail.com"}
