@@ -61,20 +61,33 @@ def _wait_for_port(host: str, port: int, timeout: float) -> None:
 
 
 def _terminate_process(pid: int, timeout: float = 5.0) -> None:
-    """Terminate a process: SIGTERM, wait, then SIGKILL if needed."""
+    """Terminate a process group: SIGTERM, wait, then SIGKILL if needed.
+
+    The emulator is launched in its own process group so that both the
+    gcloud wrapper *and* the child Java process are cleaned up together.
+    """
     try:
-        os.kill(pid, signal.SIGTERM)
+        os.killpg(pid, signal.SIGTERM)
     except ProcessLookupError:
         return
+    except OSError:
+        # Fallback to single-process kill if pgid doesn't exist
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except ProcessLookupError:
+            return
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         if not _is_pid_alive(pid):
             return
         time.sleep(0.2)
     try:
-        os.kill(pid, signal.SIGKILL)
-    except ProcessLookupError:
-        pass
+        os.killpg(pid, signal.SIGKILL)
+    except (ProcessLookupError, OSError):
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
 
 
 class FirestoreEmulator:
@@ -207,6 +220,7 @@ class FirestoreEmulator:
             cmd,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
+            preexec_fn=os.setsid,
         )
 
     @staticmethod

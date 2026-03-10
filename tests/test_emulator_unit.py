@@ -129,36 +129,46 @@ class TestWaitForPort:
 class TestTerminateProcess:
     def test_sigterm_kills(self) -> None:
         with (
+            patch("os.killpg") as mock_killpg,
+            patch("pytest_firestore._emulator._is_pid_alive", return_value=False),
+        ):
+            _terminate_process(123)
+        mock_killpg.assert_called_once_with(123, signal.SIGTERM)
+
+    def test_already_dead(self) -> None:
+        with patch("os.killpg", side_effect=ProcessLookupError):
+            _terminate_process(123)  # should not raise
+
+    def test_sigterm_fallback_to_kill(self) -> None:
+        """If killpg raises OSError, fall back to os.kill."""
+        with (
+            patch("os.killpg", side_effect=OSError),
             patch("os.kill") as mock_kill,
             patch("pytest_firestore._emulator._is_pid_alive", return_value=False),
         ):
             _terminate_process(123)
         mock_kill.assert_called_once_with(123, signal.SIGTERM)
 
-    def test_already_dead(self) -> None:
-        with patch("os.kill", side_effect=ProcessLookupError):
-            _terminate_process(123)  # should not raise
-
     def test_sigkill_fallback(self) -> None:
         # Process stays alive, monotonic exceeds deadline → SIGKILL
         with (
-            patch("os.kill") as mock_kill,
+            patch("os.killpg") as mock_killpg,
             patch("pytest_firestore._emulator._is_pid_alive", return_value=True),
             patch("time.monotonic", side_effect=[0.0, 0.0, 10.0]),
             patch("time.sleep"),
         ):
             _terminate_process(123, timeout=5.0)
-        assert mock_kill.call_count == 2
-        mock_kill.assert_any_call(123, signal.SIGTERM)
-        mock_kill.assert_any_call(123, signal.SIGKILL)
+        assert mock_killpg.call_count == 2
+        mock_killpg.assert_any_call(123, signal.SIGTERM)
+        mock_killpg.assert_any_call(123, signal.SIGKILL)
 
     def test_sigkill_race(self) -> None:
-        def kill_side_effect(pid: int, sig: int) -> None:
+        def killpg_side_effect(pid: int, sig: int) -> None:
             if sig == signal.SIGKILL:
                 raise ProcessLookupError
 
         with (
-            patch("os.kill", side_effect=kill_side_effect),
+            patch("os.killpg", side_effect=killpg_side_effect),
             patch("pytest_firestore._emulator._is_pid_alive", return_value=True),
             patch("time.monotonic", side_effect=[0.0, 0.0, 10.0]),
             patch("time.sleep"),
