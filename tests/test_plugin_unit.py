@@ -73,7 +73,9 @@ class TestPytestAddoption:
 
 
 class TestFirestoreEmulatorFixture:
-    def _make_request(self, *, has_workerinput: bool = False) -> MagicMock:
+    def _make_request(
+        self, *, has_workerinput: bool = False, workerid: str = "gw0"
+    ) -> MagicMock:
         config = MagicMock()
         config.getoption.return_value = None
         config.getini.side_effect = lambda key: {
@@ -83,7 +85,7 @@ class TestFirestoreEmulatorFixture:
             "firestore_emulator_timeout": "15",
         }[key]
         if has_workerinput:
-            config.workerinput = {}
+            config.workerinput = {"workerid": workerid}
         else:
             del config.workerinput
         request = MagicMock()
@@ -200,3 +202,71 @@ class TestFirestoreEmulatorFixture:
 
             with pytest.raises(StopIteration):
                 next(gen)
+
+    def test_xdist_appends_worker_id_to_project(self) -> None:
+        request = self._make_request(has_workerinput=True, workerid="gw3")
+        tmp_path_factory = MagicMock()
+        base = MagicMock()
+        tmp_path_factory.getbasetemp.return_value = base
+
+        # Emulator returns base project; fixture adds worker suffix
+        info = EmulatorInfo(host="localhost", port=8080, project="test-project")
+
+        with patch("pytest_firestore.plugin.FirestoreEmulator") as MockEm:
+            instance = MockEm.return_value
+            instance.start.return_value = info
+
+            gen = _firestore_emulator_fn(request, tmp_path_factory)
+            result = next(gen)
+
+            # Emulator receives base project
+            _, kwargs = MockEm.call_args
+            assert kwargs["project"] == "test-project"
+            # Yielded info has worker-isolated project
+            assert result.project == "test-project-gw3"
+
+            with pytest.raises(StopIteration):
+                next(gen)
+
+    def test_no_xdist_project_unchanged(self) -> None:
+        request = self._make_request(has_workerinput=False)
+        tmp_path_factory = MagicMock()
+
+        info = EmulatorInfo(host="localhost", port=8080, project="test-project")
+
+        with patch("pytest_firestore.plugin.FirestoreEmulator") as MockEm:
+            instance = MockEm.return_value
+            instance.start.return_value = info
+
+            gen = _firestore_emulator_fn(request, tmp_path_factory)
+            result = next(gen)
+
+            assert result.project == "test-project"
+            _, kwargs = MockEm.call_args
+            assert kwargs["project"] == "test-project"
+
+            with pytest.raises(StopIteration):
+                next(gen)
+
+    def test_xdist_external_emulator_appends_worker_id(self) -> None:
+        """External emulator path also gets worker-isolated project."""
+        request = self._make_request(has_workerinput=True, workerid="gw1")
+        tmp_path_factory = MagicMock()
+
+        os.environ["FIRESTORE_EMULATOR_HOST"] = "external-host:9999"
+
+        try:
+            with (
+                patch("pytest_firestore.plugin.FirestoreEmulator") as MockEm,
+                patch("pytest_firestore.plugin._wait_for_port"),
+            ):
+                gen = _firestore_emulator_fn(request, tmp_path_factory)
+                result = next(gen)
+
+                MockEm.assert_not_called()
+                assert result.project == "test-project-gw1"
+
+                with pytest.raises(StopIteration):
+                    next(gen)
+        finally:
+            os.environ.pop("FIRESTORE_EMULATOR_HOST", None)

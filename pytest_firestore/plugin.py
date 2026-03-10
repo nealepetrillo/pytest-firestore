@@ -95,12 +95,19 @@ def firestore_emulator(
         _get_option(config, "firestore_timeout", "firestore_emulator_timeout")
     )
 
+    # Under xdist, append worker ID to project for data isolation.
+    # Applied after emulator start so the shared state uses the base project.
+    worker_id: str | None = None
+    if hasattr(config, "workerinput"):
+        worker_id = config.workerinput["workerid"]
+
     # If an external emulator is already running, use it directly.
     external_host = os.environ.get("FIRESTORE_EMULATOR_HOST")
     if external_host:
         host, port = _parse_host_port(external_host)
         _wait_for_port(host, port, timeout)
-        yield EmulatorInfo(host=host, port=port, project=project)
+        isolated_project = f"{project}-{worker_id}" if worker_id else project
+        yield EmulatorInfo(host=host, port=port, project=isolated_project)
         return
 
     host = _get_option(config, "firestore_host", "firestore_emulator_host")
@@ -122,6 +129,12 @@ def firestore_emulator(
     )
 
     info = emulator.start()
+
+    # Replace project with worker-isolated version
+    if worker_id:
+        info = EmulatorInfo(
+            host=info.host, port=info.port, project=f"{project}-{worker_id}"
+        )
 
     # Set env var so google-cloud-firestore clients auto-connect
     os.environ["FIRESTORE_EMULATOR_HOST"] = info.host_port
